@@ -4,21 +4,54 @@
 #include <math.h>
 #include <string>
 #include <vector>
+#include "json.hpp"
 
 // for convenience
-using std::string;
-using std::vector;
+using nlohmann::json;
+
+struct Car {
+  Car(const json& data)
+      : x(data["x"]),
+        y(data["y"]),
+        s(data["s"]),
+        d(data["d"]),
+        yaw(data["yaw"]),
+        speed(data["speed"]) {}
+
+  double x;
+  double y;
+  double s;
+  double d;
+  double yaw;
+  double speed;
+};
+
+struct Map {
+  std::vector<double> xs;
+  std::vector<double> ys;
+  std::vector<double> ss;
+  std::vector<double> dxs;
+  std::vector<double> dys;
+};
+
+struct MapPoint {
+  double x;
+  double y;
+  double s;
+  double dx;
+  double dy;
+};
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 //   else the empty string "" will be returned.
-string hasData(string s) {
+std::string hasData(std::string s) {
   auto found_null = s.find("null");
   auto b1 = s.find_first_of("[");
   auto b2 = s.find_first_of("}");
-  if (found_null != string::npos) {
+  if (found_null != std::string::npos) {
     return "";
-  } else if (b1 != string::npos && b2 != string::npos) {
+  } else if (b1 != std::string::npos && b2 != std::string::npos) {
     return s.substr(b1, b2 - b1 + 2);
   }
   return "";
@@ -31,8 +64,9 @@ string hasData(string s) {
 
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
-double deg2rad(double x) { return x * pi() / 180; }
-double rad2deg(double x) { return x * 180 / pi(); }
+constexpr double deg2rad(double x) { return x * pi() / 180; }
+constexpr double rad2deg(double x) { return x * 180 / pi(); }
+constexpr double mile2mps(double mile) { return mile / 3.6 * 1.60934; }
 
 // Calculate distance between two points
 double distance(double x1, double y1, double x2, double y2) {
@@ -40,14 +74,13 @@ double distance(double x1, double y1, double x2, double y2) {
 }
 
 // Calculate closest waypoint to current x, y position
-int ClosestWaypoint(double x, double y, const vector<double> &maps_x,
-                    const vector<double> &maps_y) {
+int ClosestWaypoint(double x, double y, const Map& map) {
   double closestLen = 100000;  // large number
   int closestWaypoint = 0;
 
-  for (int i = 0; i < maps_x.size(); ++i) {
-    double map_x = maps_x[i];
-    double map_y = maps_y[i];
+  for (int i = 0; i < map.xs.size(); ++i) {
+    double map_x = map.xs[i];
+    double map_y = map.ys[i];
     double dist = distance(x, y, map_x, map_y);
     if (dist < closestLen) {
       closestLen = dist;
@@ -59,12 +92,11 @@ int ClosestWaypoint(double x, double y, const vector<double> &maps_x,
 }
 
 // Returns next waypoint of the closest waypoint
-int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x,
-                 const vector<double> &maps_y) {
-  int closestWaypoint = ClosestWaypoint(x, y, maps_x, maps_y);
+int NextWaypoint(double x, double y, double theta, const Map& map) {
+  int closestWaypoint = ClosestWaypoint(x, y, map);
 
-  double map_x = maps_x[closestWaypoint];
-  double map_y = maps_y[closestWaypoint];
+  double map_x = map.xs[closestWaypoint];
+  double map_y = map.ys[closestWaypoint];
 
   double heading = atan2((map_y - y), (map_x - x));
 
@@ -73,7 +105,7 @@ int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x,
 
   if (angle > pi() / 2) {
     ++closestWaypoint;
-    if (closestWaypoint == maps_x.size()) {
+    if (closestWaypoint == map.xs.size()) {
       closestWaypoint = 0;
     }
   }
@@ -82,21 +114,19 @@ int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x,
 }
 
 // Transform from Cartesian x,y coordinates to Frenet s,d coordinates
-vector<double> getFrenet(double x, double y, double theta,
-                         const vector<double> &maps_x,
-                         const vector<double> &maps_y) {
-  int next_wp = NextWaypoint(x, y, theta, maps_x, maps_y);
+std::tuple<double, double> getFrenet(double x, double y, double theta, const Map& map) {
+  int next_wp = NextWaypoint(x, y, theta, map);
 
   int prev_wp;
   prev_wp = next_wp - 1;
   if (next_wp == 0) {
-    prev_wp = maps_x.size() - 1;
+    prev_wp = map.xs.size() - 1;
   }
 
-  double n_x = maps_x[next_wp] - maps_x[prev_wp];
-  double n_y = maps_y[next_wp] - maps_y[prev_wp];
-  double x_x = x - maps_x[prev_wp];
-  double x_y = y - maps_y[prev_wp];
+  double n_x = map.xs[next_wp] - map.xs[prev_wp];
+  double n_y = map.ys[next_wp] - map.ys[prev_wp];
+  double x_x = x - map.xs[prev_wp];
+  double x_y = y - map.ys[prev_wp];
 
   // find the projection of x onto n
   double proj_norm = (x_x * n_x + x_y * n_y) / (n_x * n_x + n_y * n_y);
@@ -106,8 +136,8 @@ vector<double> getFrenet(double x, double y, double theta,
   double frenet_d = distance(x_x, x_y, proj_x, proj_y);
 
   // see if d value is positive or negative by comparing it to a center point
-  double center_x = 1000 - maps_x[prev_wp];
-  double center_y = 2000 - maps_y[prev_wp];
+  double center_x = 1000 - map.xs[prev_wp];
+  double center_y = 2000 - map.ys[prev_wp];
   double centerToPos = distance(center_x, center_y, x_x, x_y);
   double centerToRef = distance(center_x, center_y, proj_x, proj_y);
 
@@ -118,7 +148,7 @@ vector<double> getFrenet(double x, double y, double theta,
   // calculate s value
   double frenet_s = 0;
   for (int i = 0; i < prev_wp; ++i) {
-    frenet_s += distance(maps_x[i], maps_y[i], maps_x[i + 1], maps_y[i + 1]);
+    frenet_s += distance(map.xs[i], map.ys[i], map.xs[i + 1], map.ys[i + 1]);
   }
 
   frenet_s += distance(0, 0, proj_x, proj_y);
@@ -127,24 +157,21 @@ vector<double> getFrenet(double x, double y, double theta,
 }
 
 // Transform from Frenet s,d coordinates to Cartesian x,y
-vector<double> getXY(double s, double d, const vector<double> &maps_s,
-                     const vector<double> &maps_x,
-                     const vector<double> &maps_y) {
+std::tuple<double, double> getXY(double s, double d, const Map& map) {
   int prev_wp = -1;
 
-  while (s > maps_s[prev_wp + 1] && (prev_wp < (int)(maps_s.size() - 1))) {
+  while (s > map.ss[prev_wp + 1] && (prev_wp < (int)(map.ss.size() - 1))) {
     ++prev_wp;
   }
 
-  int wp2 = (prev_wp + 1) % maps_x.size();
+  int wp2 = (prev_wp + 1) % map.xs.size();
 
-  double heading =
-      atan2((maps_y[wp2] - maps_y[prev_wp]), (maps_x[wp2] - maps_x[prev_wp]));
+  double heading = atan2((map.ys[wp2] - map.ys[prev_wp]), (map.xs[wp2] - map.xs[prev_wp]));
   // the x,y,s along the segment
-  double seg_s = (s - maps_s[prev_wp]);
+  double seg_s = (s - map.ss[prev_wp]);
 
-  double seg_x = maps_x[prev_wp] + seg_s * cos(heading);
-  double seg_y = maps_y[prev_wp] + seg_s * sin(heading);
+  double seg_x = map.xs[prev_wp] + seg_s * cos(heading);
+  double seg_y = map.ys[prev_wp] + seg_s * sin(heading);
 
   double perp_heading = heading - pi() / 2;
 
