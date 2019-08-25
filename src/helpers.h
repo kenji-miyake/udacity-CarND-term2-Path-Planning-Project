@@ -9,6 +9,8 @@
 // for convenience
 using nlohmann::json;
 
+constexpr double mile2mps(const double mile) { return mile / 3.6 * 1.60934; }
+
 struct Car {
   Car(const json& data)
       : x(data["x"]),
@@ -16,7 +18,8 @@ struct Car {
         s(data["s"]),
         d(data["d"]),
         yaw(data["yaw"]),
-        speed(data["speed"]) {}
+        speed(data["speed"]),
+        v(mile2mps(speed)) {}
 
   double x;
   double y;
@@ -24,6 +27,7 @@ struct Car {
   double d;
   double yaw;
   double speed;
+  double v;
 };
 
 struct Map {
@@ -34,12 +38,25 @@ struct Map {
   std::vector<double> dys;
 };
 
-struct MapPoint {
+struct Obstacle {
+  Obstacle(const json& data)
+      : id(data[0]),
+        x(data[1]),
+        y(data[2]),
+        vx(data[3]),
+        vy(data[4]),
+        s(data[5]),
+        d(data[6]),
+        v(hypot(vx, vy)) {}
+
+  int id;
   double x;
   double y;
+  double vx;
+  double vy;
   double s;
-  double dx;
-  double dy;
+  double d;
+  double v;
 };
 
 // Checks if the SocketIO event has JSON data.
@@ -66,7 +83,6 @@ std::string hasData(std::string s) {
 constexpr double pi() { return M_PI; }
 constexpr double deg2rad(double x) { return x * pi() / 180; }
 constexpr double rad2deg(double x) { return x * 180 / pi(); }
-constexpr double mile2mps(double mile) { return mile / 3.6 * 1.60934; }
 
 // Calculate distance between two points
 double distance(double x1, double y1, double x2, double y2) {

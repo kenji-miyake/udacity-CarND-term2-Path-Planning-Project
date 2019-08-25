@@ -24,4 +24,4 @@ endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 
 add_executable(path_planning ${sources})
 
-target_link_libraries(path_planning z ssl uv uWS)
+target_link_libraries(path_planning z ssl uv uWS stdc++fs)
